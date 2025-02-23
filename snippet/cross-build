@@ -48,15 +48,15 @@ C_ARES_BUILD() {
     make install
 }
 
+# 示例：OpenSSL 的正确配置
 OPENSSL_BUILD() {
-    mkdir -p $BUILD_DIR/openssl && cd $BUILD_DIR/openssl
-    curl -Ls -o - "$OPENSSL" | tar zxvf - --strip-components=1
-    ./Configure \
-        --prefix=$PREFIX \
-        $OPENSSL_ARCH \
-        no-tests
+    cd openssl-*
+    ./config \
+        --prefix=/usr/local/openssl \
+        --openssldir=/usr/local/openssl \
+        shared  # 使用 shared 替代 dynamic-extensions
     make -j$(nproc)
-    make install_sw
+    make install
 }
 
 SQLITE3_BUILD() {
@@ -67,8 +67,7 @@ SQLITE3_BUILD() {
         --build=$(dpkg-architecture -qDEB_BUILD_GNU_TYPE) \
         --prefix=$PREFIX \
         --enable-static \
-        --disable-shared \
-        --disable-dynamic-extensions
+        --disable-shared  # 保留此选项，移除 --disable-dynamic-extensions
     make -j$(nproc)
     make install
 }
