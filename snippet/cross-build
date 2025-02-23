@@ -48,13 +48,13 @@ C_ARES_BUILD() {
     make install
 }
 
-# 示例：OpenSSL 的正确配置
+# 示例：修正后的 OpenSSL 构建函数
 OPENSSL_BUILD() {
     cd openssl-*
     ./config \
+        no-shared \
         --prefix=/usr/local/openssl \
-        --openssldir=/usr/local/openssl \
-        shared  # 使用 shared 替代 dynamic-extensions
+        --openssldir=/usr/local/openssl
     make -j$(nproc)
     make install
 }
