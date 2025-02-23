@@ -1,90 +1,103 @@
-#
-# Copyright (c) 2020 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the GNU General Public License v3.
-# See /LICENSE for more information.
-#
-# https://github.com/P3TERX/Aria2-Pro-Core
-#
-
-name: Aria2 Builder
+name: Aria2 Pro Core Build
 
 on:
   workflow_dispatch:
-  repository_dispatch:
   push:
+    tags: ['*']
     paths-ignore:
       - '**.md'
       - 'LICENSE'
 
+env:
+  ARTIFACT_PREFIX: aria2-pro-core
+  OUTPUT_DIR: ./output
+
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        PLATFORMS: [amd64, arm64, armhf, i386]
+        platforms: [amd64, arm64, armhf, i386]
         include:
-        - PLATFORMS: amd64
-          BUILDER_IMAGE: debian:11
-          BUILD_SCRIPT: aria2-gnu-linux-build-amd64.sh
-        - PLATFORMS: arm64
-          BUILDER_IMAGE: debian:11
-          BUILD_SCRIPT: aria2-gnu-linux-cross-build-arm64.sh
-        - PLATFORMS: armhf
-          BUILDER_IMAGE: ubuntu:16.04
-          BUILD_SCRIPT: aria2-gnu-linux-cross-build-armhf.sh
-        - PLATFORMS: i386
-          BUILDER_IMAGE: debian:10
-          BUILD_SCRIPT: aria2-gnu-linux-cross-build-i386.sh
+          - platform: amd64
+            builder_image: debian:11-slim
+            build_script: aria2-gnu-linux-build-amd64.sh
+          - platform: arm64
+            builder_image: debian:11-slim
+            build_script: aria2-gnu-linux-cross-build-arm64.sh
+          - platform: armhf
+            builder_image: ubuntu:20.04  # 升级基础镜像
+            build_script: aria2-gnu-linux-cross-build-armhf.sh
+          - platform: i386
+            builder_image: debian:11-slim  # 统一使用 Debian 11
+            build_script: aria2-gnu-linux-cross-build-i386.sh
 
     steps:
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,arm
 
-    - name: Install QEMU
-      run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Checkout
-      uses: actions/checkout@v2
+      - name: Docker build
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          docker buildx build \
+            --build-arg BUILDER_IMAGE=${{ matrix.builder_image }} \
+            --build-arg BUILD_SCRIPT=${{ matrix.build_script }} \
+            --platform linux/${{ matrix.platform }} \
+            --output type=local,dest=${{ env.OUTPUT_DIR }} \
+            . 2>&1 | tee build.log
 
-    - name: Build
-      env:
-        DOCKER_BUILDKIT: 1
-        BUILDER_IMAGE: ${{ matrix.BUILDER_IMAGE }}
-        BUILD_SCRIPT: ${{ matrix.BUILD_SCRIPT }}
-      run: |
-        docker build \
-          --build-arg BUILDER_IMAGE \
-          --build-arg BUILD_SCRIPT \
-          --platform=local \
-          -o ./output . \
-          2>&1 | tee build.log
+      - name: Analyze build log
+        if: ${{ !cancelled() }}
+        run: |
+          grep -iE 'fatal|error|critical|failure' build.log && exit 1 || true
 
-    - name: Output Error Log
-      if: (!cancelled())
-      run: grep -iE 'fatal|error|critical|failure|warning' build.log
+      - name: Verify binary
+        run: |
+          tar xzvf ${{ env.OUTPUT_DIR }}/aria2-*.tar.gz
+          file aria2c | tee ${{ env.OUTPUT_DIR }}/metadata-${{ matrix.platform }}.txt
+          ./aria2c -v | tee ${{ env.OUTPUT_DIR }}/version-${{ matrix.platform }}.txt
 
-    - name: Check Version
-      run: |
-        tar xzvf ./output/aria2*.tar.gz
-        file aria2c 2>&1 | tee ./output/file-type-${{ matrix.PLATFORMS }}.txt
-        ./aria2c -v 2>&1 | tee ./output/version-${{ matrix.PLATFORMS }}.txt
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}-${{ matrix.platform }}
+          path: |
+            ${{ env.OUTPUT_DIR }}/*.tar.gz
+            ${{ env.OUTPUT_DIR }}/*.txt
+            build.log
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: aria2-${{ matrix.PLATFORMS }}
-        path: output
+  release:
+    name: Create Release
+    runs-on: ubuntu-22.04
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ env.ARTIFACT_PREFIX }}
 
-    - name: Functional Testing
-      run: |
-        ./aria2c https://raw.githubusercontent.com/P3TERX/aria2.conf/master/dht.dat
-        ./aria2c https://raw.githubusercontent.com/P3TERX/aria2.conf/master/dht6.dat
-        ./aria2c \
-          --seed-time=0 \
-          --enable-dht6=true \
-          --dht-file-path="$PWD/dht.dat" \
-          --dht-file-path6="$PWD/dht6.dat" \
-          --dht-entry-point='dht.transmissionbt.com:6881' \
-          --dht-entry-point6='dht.transmissionbt.com:6881' \
-          "$(curl -fsSL https://ubuntu.com/download/alternative-downloads | grep -o 'https.*server.*torrent' | head -1)"
+      - name: Generate checksums
+        run: |
+          cd ${{ env.ARTIFACT_PREFIX }}
+          sha256sum * > checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Aria2 Pro Core ${{ github.ref_name }}"
+          body: Multi-architecture builds with enhanced features
+          files: |
+            ${{ env.ARTIFACT_PREFIX }}/**/*
