@@ -45,19 +45,17 @@ jobs:
         with:
           submodules: recursive
 
-
       - name: Docker build
         env:
           DOCKER_BUILDKIT: 1
         run: |
           docker buildx build \
-            --progress=plain \
             --build-arg BUILDER_IMAGE=${{ matrix.builder_image }} \
             --build-arg BUILD_SCRIPT=${{ matrix.build_script }} \
             --platform linux/${{ matrix.platform }} \
             --output type=local,dest=${{ env.OUTPUT_DIR }} \
             . 2>&1 | tee build.log
-            
+
       - name: Analyze build log
         if: ${{ !cancelled() }}
         run: |
