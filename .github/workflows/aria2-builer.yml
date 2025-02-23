@@ -1,3 +1,12 @@
+#
+# Copyright (c) 2020 P3TERX <https://p3terx.com>
+#
+# This is free software, licensed under the GNU General Public License v3.
+# See /LICENSE for more information.
+#
+# https://github.com/P3TERX/Aria2-Pro-Core
+#
+
 name: Aria2 Builder
 
 on:
@@ -31,14 +40,14 @@ jobs:
           BUILD_SCRIPT: aria2-gnu-linux-cross-build-i386.sh
 
     steps:
+
     - name: Install QEMU
-      run: |
-        docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-    - name: Checkout repository
-      uses: actions/checkout@v4  # 更新为 v4 版本
+    - name: Checkout
+      uses: actions/checkout@v2
 
-    - name: Build with Docker
+    - name: Build
       env:
         DOCKER_BUILDKIT: 1
         BUILDER_IMAGE: ${{ matrix.BUILDER_IMAGE }}
@@ -52,8 +61,8 @@ jobs:
           2>&1 | tee build.log
 
     - name: Output Error Log
-      if: always()  # 确保即使步骤失败也能输出日志
-      run: grep -iE 'fatal|error|critical|failure|warning' build.log || true
+      if: (!cancelled())
+      run: grep -iE 'fatal|error|critical|failure|warning' build.log
 
     - name: Check Version
       run: |
@@ -62,7 +71,7 @@ jobs:
         ./aria2c -v 2>&1 | tee ./output/version-${{ matrix.PLATFORMS }}.txt
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4  # 更新为 v4 版本
+      uses: actions/upload-artifact@v2
       with:
         name: aria2-${{ matrix.PLATFORMS }}
         path: output
